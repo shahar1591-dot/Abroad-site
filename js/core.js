@@ -359,10 +359,184 @@
     return Math.round(Math.min(15000, Math.max(800, spread * 0.5)));
   }
 
+  // ---------------------------------------------------------------------------
+  // Importing saved places (Google Takeout CSV / JSON, My Maps KML, pasted links)
+  // Every parser returns [{name, address?, lat?, lon?, note?, url?}]; entries
+  // without coordinates are geocoded later by name.
+  // ---------------------------------------------------------------------------
+
+  const validCoord = (lat, lon) =>
+    Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
+
+  /** Extract coordinates and a name from any Google Maps URL that carries them. */
+  function parseMapsUrl(raw) {
+    let url = String(raw || '').trim();
+    if (!url) return null;
+    try { url = decodeURIComponent(url.replace(/\+/g, ' ')); } catch { /* keep as is */ }
+    const out = { url: String(raw).trim() };
+
+    const pin = /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/.exec(url);           // exact place pin
+    const q = /[?&](?:q|query|ll|destination|center)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(url);
+    const search = /\/maps\/search\/(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(url);
+    const at = /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/.exec(url);                 // viewport centre
+    const m = pin || q || search || at;
+    if (m) {
+      const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+      if (validCoord(lat, lon)) { out.lat = lat; out.lon = lon; }
+    }
+
+    const place = /\/maps\/place\/([^/@?]+)/.exec(url);
+    const qName = /[?&](?:q|query)=([^&]+)/.exec(url);
+    let name = place ? place[1] : (qName && !q ? qName[1] : '');
+    name = name.replace(/\s+/g, ' ').trim();
+    if (name && !/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(name)) out.name = name;
+    return out.name || out.lat !== undefined ? out : null;
+  }
+
+  /** RFC 4180-ish CSV parser (quoted fields, escaped quotes, newlines in quotes). */
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    const s = String(text).replace(/^﻿/, '');
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inQuotes) {
+        if (c === '"' && s[i + 1] === '"') { field += '"'; i++; }
+        else if (c === '"') inQuotes = false;
+        else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && s[i + 1] === '\n') i++;
+        row.push(field); rows.push(row); row = []; field = '';
+      } else field += c;
+    }
+    if (field || row.length) { row.push(field); rows.push(row); }
+    return rows.filter((r) => r.some((f) => f.trim() !== ''));
+  }
+
+  /** Google Takeout "Saved" list CSV (Title, Note, URL, Tags, Comment) or any CSV with name/lat/lon columns. */
+  function parseSavedCsv(text) {
+    const rows = parseCsv(text);
+    if (!rows.length) return [];
+    const header = rows[0].map((h) => h.trim().toLowerCase());
+    const col = (...names) => header.findIndex((h) => names.includes(h));
+    const iName = col('title', 'name', 'place', 'place name');
+    const iUrl = col('url', 'google maps url', 'link');
+    const iNote = col('note', 'notes', 'comment', 'description');
+    const iAddr = col('address', 'location');
+    const iLat = col('lat', 'latitude');
+    const iLon = col('lon', 'lng', 'long', 'longitude');
+    const hasHeader = iName >= 0 || iUrl >= 0;
+    const body = hasHeader ? rows.slice(1) : rows;
+
+    const out = [];
+    for (const r of body) {
+      const get = (i) => (i >= 0 && r[i] !== undefined ? r[i].trim() : '');
+      const fromUrl = parseMapsUrl(hasHeader ? get(iUrl) : r.find((f) => /^https?:\/\//.test(f.trim())) || '') || {};
+      const item = {
+        name: get(iName) || fromUrl.name || (!hasHeader ? (r[0] || '').trim() : ''),
+        address: get(iAddr) || undefined,
+        note: get(iNote) || undefined,
+        url: fromUrl.url,
+      };
+      const lat = parseFloat(get(iLat)), lon = parseFloat(get(iLon));
+      if (validCoord(lat, lon)) { item.lat = lat; item.lon = lon; }
+      else if (fromUrl.lat !== undefined) { item.lat = fromUrl.lat; item.lon = fromUrl.lon; }
+      if (item.name || item.lat !== undefined) out.push(item);
+    }
+    return out;
+  }
+
+  /** Google Takeout "Saved Places.json" (old and new shapes) or any GeoJSON of points. */
+  function parseSavedGeoJson(json) {
+    const data = typeof json === 'string' ? JSON.parse(json) : json;
+    const features = Array.isArray(data) ? data : data.features || [];
+    const out = [];
+    for (const f of features) {
+      const p = f.properties || {};
+      const loc = p.location || p.Location || {};
+      const geo = loc['Geo Coordinates'] || {};
+      const url = p.google_maps_url || p['Google Maps URL'] || p.url || '';
+      const fromUrl = parseMapsUrl(url) || {};
+      const item = {
+        name: loc.name || loc['Business Name'] || p.Title || p.title || p.name || p.Name || fromUrl.name || '',
+        address: loc.address || loc.Address || p.address || undefined,
+        note: p.Comment || p.comment || p.description || undefined,
+        url: url || undefined,
+      };
+      const c = f.geometry && f.geometry.type === 'Point' ? f.geometry.coordinates : null;
+      const cand = [
+        c ? [parseFloat(c[1]), parseFloat(c[0])] : null,
+        [parseFloat(geo.Latitude), parseFloat(geo.Longitude)],
+        [fromUrl.lat, fromUrl.lon],
+      ];
+      const hit = cand.find((x) => x && validCoord(x[0], x[1]));
+      if (hit) { item.lat = hit[0]; item.lon = hit[1]; }
+      if (!item.name && item.address) item.name = item.address.split(',')[0];
+      if (item.name || item.lat !== undefined) out.push(item);
+    }
+    return out;
+  }
+
+  /** KML from Google My Maps / Google Earth: every Placemark with a Point. */
+  function parseKml(text) {
+    const out = [];
+    const decode = (s) => String(s || '')
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ').trim();
+    const tag = (block, t) => { const m = new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`, 'i').exec(block); return m ? m[1] : ''; };
+    for (const m of String(text).matchAll(/<Placemark[\s\S]*?<\/Placemark>/gi)) {
+      const block = m[0];
+      const point = tag(block, 'Point');
+      const coords = tag(point || block, 'coordinates').trim().split(/\s+/)[0] || '';
+      const [lon, lat] = coords.split(',').map(parseFloat);
+      const item = { name: decode(tag(block, 'name')), address: decode(tag(block, 'address')) || undefined, note: decode(tag(block, 'description')).slice(0, 300) || undefined };
+      if (point && validCoord(lat, lon)) { item.lat = lat; item.lon = lon; }
+      else if (!point) continue; // lines / polygons are not places
+      if (item.name || item.lat !== undefined) out.push(item);
+    }
+    return out;
+  }
+
+  /** Free text: one Google Maps link, "lat, lon", or place name per line. */
+  function parsePastedList(text) {
+    const out = [];
+    for (let line of String(text || '').split(/\r?\n/)) {
+      line = line.replace(/^\s*(?:[-*•]\s*|\d+[.)]\s+)/, '').trim();
+      if (!line) continue;
+      const urlMatch = /https?:\/\/\S+/.exec(line);
+      if (urlMatch) {
+        const u = parseMapsUrl(urlMatch[0]);
+        const label = line.replace(urlMatch[0], '').replace(/[-–:|]\s*$/, '').trim();
+        if (u && (u.name || u.lat !== undefined)) out.push({ ...u, name: label || u.name || '' });
+        else out.push({ name: label, url: urlMatch[0], unresolved: !label });
+        continue;
+      }
+      const ll = /^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/.exec(line);
+      if (ll && validCoord(+ll[1], +ll[2])) { out.push({ name: '', lat: +ll[1], lon: +ll[2] }); continue; }
+      out.push({ name: line });
+    }
+    return out;
+  }
+
+  /** Pick the right parser from the file name / content. */
+  function parseImportFile(fileName, text) {
+    const n = String(fileName || '').toLowerCase();
+    const t = String(text || '').trim();
+    if (n.endsWith('.kml') || /^<\?xml|<kml[\s>]/i.test(t)) return parseKml(t);
+    if (n.endsWith('.json') || n.endsWith('.geojson') || /^[{[]/.test(t)) return parseSavedGeoJson(t);
+    if (n.endsWith('.csv') || /^(title|name)\s*,/i.test(t)) return parseSavedCsv(t);
+    return parsePastedList(t);
+  }
+
   const Core = {
     haversine, averageDistance, geometricMedian, formatDistance, walkingMinutes,
     STYLES, KEYWORDS, parseDescription, buildOverpassQuery, filtersFor, classify,
     toPoi, notability, rankPois, LODGING, rankHotels, hotelSearchRadius, escapeRegex,
+    parseMapsUrl, parseCsv, parseSavedCsv, parseSavedGeoJson, parseKml, parsePastedList, parseImportFile,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;

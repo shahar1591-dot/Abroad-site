@@ -306,3 +306,33 @@ a { color: var(--accent); }
   body.sheet-expanded .map-tools { display: none; }
   .panel-body { padding: 10px; }
 }
+
+/* ---------- Import from Google Maps ---------- */
+#import-toggle { width: 100%; margin-bottom: 10px; }
+.import { border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; background: var(--bg); }
+.import .field input[type=text] {
+  width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--card); outline: none;
+}
+.import .field input[type=text]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.import .field textarea { background: var(--card); }
+.howto { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+.howto summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.howto ol { padding-left: 18px; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.howto code { font-size: 11.5px; background: var(--card); padding: 1px 4px; border-radius: 4px; }
+.file-drop {
+  display: block; position: relative; border: 2px dashed var(--line); border-radius: 10px; padding: 14px;
+  text-align: center; cursor: pointer; background: var(--card); transition: border-color .15s, background .15s;
+}
+.file-drop:hover, .file-drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.file-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.file-drop small { color: var(--muted); }
+.import-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 13px; }
+.import-row input { margin-top: 3px; accent-color: var(--accent); flex: none; }
+.import-row .meta { flex: 1; min-width: 0; }
+.import-row .name { font-weight: 600; overflow-wrap: anywhere; }
+.import-row .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.import-row .status { font-size: 12px; white-space: nowrap; flex: none; }
+.import-row.bad { opacity: .6; }
+.import-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.import-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.import-bar button { font-size: 12px; }

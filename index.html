@@ -35,6 +35,32 @@
             <ul id="search-results" class="dropdown" role="listbox" hidden></ul>
           </div>
           <p class="hint">Tip: you can also click anywhere on the map to drop a place.</p>
+          <button class="btn ghost small block-left" id="import-toggle" aria-expanded="false" aria-controls="import-panel">⬇️ Import from Google Maps</button>
+          <div id="import-panel" class="import" hidden>
+            <details class="howto">
+              <summary>How do I get my Google Maps lists?</summary>
+              <ol>
+                <li><b>Saved lists</b> (Want to go, Favorites, your own lists): open <a href="https://takeout.google.com/" target="_blank" rel="noopener">Google Takeout</a> → <em>Deselect all</em> → tick <b>Saved</b> → <em>Next step</em> → <em>Create export</em>. Unzip the download: every list is a <code>.csv</code> file.</li>
+                <li><b>Starred / labeled places</b>: in Takeout tick <b>Maps (your places)</b> instead and use <code>Saved Places.json</code>.</li>
+                <li><b>Google My Maps</b>: open the map → ⋮ menu → <em>Export to KML/KMZ</em> → tick <em>Export as KML</em>.</li>
+                <li><b>Just a few places?</b> In Google Maps tap <em>Share</em> → <em>Copy link</em>, open the link in your browser, then paste the full address from the address bar below. Plain place names work too.</li>
+              </ol>
+            </details>
+            <label class="file-drop" id="file-drop">
+              <input id="import-file" type="file" accept=".csv,.json,.geojson,.kml,text/csv,application/json,application/vnd.google-earth.kml+xml" multiple>
+              <span>📄 Choose or drop files <small>(.csv, .json, .kml, several at once)</small></span>
+            </label>
+            <label class="field">
+              <span>…or paste Google Maps links or place names, one per line</span>
+              <textarea id="import-text" rows="3" placeholder="https://www.google.com/maps/place/Colosseum/@41.89,12.49,17z/…&#10;Trevi Fountain&#10;41.9029, 12.4534"></textarea>
+            </label>
+            <label class="field">
+              <span>Which city or country are these in? <small>(helps find places that have only a name)</small></span>
+              <input id="import-area" type="text" placeholder="e.g. Rome, Italy">
+            </label>
+            <button class="btn primary block" id="import-read">Read places</button>
+            <div id="import-preview" class="results"></div>
+          </div>
           <ol id="place-list" class="place-list"></ol>
           <div class="row gap" id="place-actions" hidden>
             <button class="btn ghost small" id="fit-all">Show all on map</button>

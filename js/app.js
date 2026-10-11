@@ -220,6 +220,23 @@
     else fitAll();
   }
 
+  /** Add many places at once (imports): one render, one toast. Returns how many were new. */
+  function addPlaces(list) {
+    let added = 0;
+    for (const p of list) {
+      const dupe = state.places.find((x) => (p.osm && x.osm === p.osm) || (Core.haversine(x, p) < 25 && x.name === p.name));
+      if (dupe) continue;
+      state.places.push({ id: uid(), name: p.name, address: p.address || '', lat: p.lat, lon: p.lon, osm: p.osm || null });
+      added++;
+    }
+    if (!added) return 0;
+    save();
+    renderPlaces();
+    invalidateHotels();
+    fitAll();
+    return added;
+  }
+
   function removePlace(id) {
     state.places = state.places.filter((p) => p.id !== id);
     save();
@@ -319,6 +336,189 @@
     });
     input.addEventListener('blur', () => setTimeout(close, 150));
     input.addEventListener('focus', () => { if (items.length && input.value.trim()) list.hidden = false; });
+  })();
+
+  // ---------------------------------------------------------------------------
+  // Import from Google Maps (Takeout CSV / Saved Places.json / My Maps KML / pasted links)
+  // ---------------------------------------------------------------------------
+  (function setupImport() {
+    const panel = $('#import-panel');
+    const toggle = $('#import-toggle');
+    const fileInput = $('#import-file');
+    const drop = $('#file-drop');
+    const preview = $('#import-preview');
+    let items = [];
+    let busy = false;
+
+    toggle.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+      if (!panel.hidden) sheet('expanded');
+    });
+
+    ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.add('over')));
+    ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
+    fileInput.addEventListener('change', () => { if (fileInput.files.length) read(); });
+    $('#import-read').addEventListener('click', read);
+
+    async function read() {
+      if (busy) return;
+      const found = [];
+      const problems = [];
+      for (const file of fileInput.files) {
+        try {
+          const text = await file.text();
+          const list = Core.parseImportFile(file.name, text);
+          if (!list.length) problems.push(`${file.name}: no places found`);
+          const listName = file.name.replace(/\.[^.]+$/, '');
+          list.forEach((it) => found.push({ ...it, source: listName }));
+        } catch (err) {
+          console.error(err);
+          problems.push(`${file.name}: could not read this file`);
+        }
+      }
+      const pasted = $('#import-text').value;
+      if (pasted.trim()) Core.parsePastedList(pasted).forEach((it) => found.push({ ...it, source: 'Pasted' }));
+
+      if (!found.length) {
+        preview.innerHTML = `<div class="empty-state">${problems.length ? problems.map(esc).join('<br>') : 'Choose a file or paste some links / names first.'}</div>`;
+        return;
+      }
+      // De-duplicate within the import.
+      const seen = new Set();
+      items = found.filter((it) => {
+        const key = it.lat !== undefined ? `${it.lat.toFixed(5)},${it.lon.toFixed(5)}` : `n:${(it.name || '').toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map((it) => ({
+        ...it,
+        checked: !it.unresolved,
+        status: it.unresolved ? 'short' : it.lat !== undefined ? 'located' : 'lookup',
+      }));
+      renderPreview(problems);
+    }
+
+    const STATUS = {
+      located: '📍 on map',
+      lookup: '🔎 will look up',
+      searching: '⏳ looking up…',
+      found: '✅ found',
+      notfound: '⚠️ not found',
+      short: '⚠️ short link',
+      added: '✔️ added',
+    };
+
+    function renderPreview(problems = []) {
+      preview.innerHTML = '';
+      const selectable = items.filter((it) => it.status !== 'short' && it.status !== 'notfound' && it.status !== 'added');
+      const bar = document.createElement('div');
+      bar.className = 'import-bar';
+      bar.innerHTML = `<span>${items.length} place${items.length === 1 ? '' : 's'} found</span>
+        <span><button class="btn ghost small" data-all="1">Select all</button> <button class="btn ghost small" data-all="0">None</button></span>`;
+      bar.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-all]');
+        if (!b || busy) return;
+        selectable.forEach((it) => { it.checked = b.dataset.all === '1'; });
+        renderPreview(problems);
+      });
+      preview.appendChild(bar);
+      if (problems.length) {
+        const warn = document.createElement('div');
+        warn.className = 'empty-state';
+        warn.innerHTML = problems.map(esc).join('<br>');
+        preview.appendChild(warn);
+      }
+
+      const list = document.createElement('div');
+      list.className = 'import-list';
+      items.forEach((it) => {
+        const row = document.createElement('label');
+        const disabled = it.status === 'short' || it.status === 'notfound' || it.status === 'added' || busy;
+        row.className = `import-row${it.status === 'short' || it.status === 'notfound' ? ' bad' : ''}`;
+        const sub = it.status === 'short'
+          ? 'Short share links can’t be read here — open it in your browser and paste the full address instead.'
+          : [it.address, it.note, it.source && it.source !== 'Pasted' ? `List: ${it.source}` : ''].filter(Boolean).join(' · ');
+        row.innerHTML = `<input type="checkbox" ${it.checked && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+          <div class="meta"><div class="name">${esc(it.name || it.url || (it.lat !== undefined ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}` : 'Unnamed place'))}</div>
+          ${sub ? `<div class="sub">${esc(sub).slice(0, 220)}</div>` : ''}</div>
+          <span class="status">${STATUS[it.status]}</span>`;
+        row.querySelector('input').addEventListener('change', (e) => { it.checked = e.target.checked; updateButton(); });
+        list.appendChild(row);
+      });
+      preview.appendChild(list);
+
+      const btn = document.createElement('button');
+      btn.className = 'btn primary block';
+      btn.id = 'import-add';
+      btn.addEventListener('click', () => addSelected(btn));
+      preview.appendChild(btn);
+      updateButton();
+    }
+
+    function updateButton() {
+      const btn = $('#import-add');
+      if (!btn) return;
+      const n = items.filter((it) => it.checked && ['located', 'lookup', 'found'].includes(it.status)).length;
+      btn.textContent = n ? `Add ${n} place${n === 1 ? '' : 's'} to my map` : 'Nothing selected';
+      btn.disabled = !n || busy;
+    }
+
+    async function addSelected(btn) {
+      const chosen = items.filter((it) => it.checked && ['located', 'lookup', 'found'].includes(it.status));
+      if (!chosen.length || busy) return;
+      busy = true;
+      btn.disabled = true;
+      const area = $('#import-area').value.trim();
+      // Bias name lookups toward places we already know about.
+      const known = [...state.places, ...items.filter((it) => it.lat !== undefined)];
+      const near = known.length ? Core.geometricMedian(known) : null;
+
+      const toFind = chosen.filter((it) => it.lat === undefined || !it.name);
+      let done = 0;
+      for (const it of toFind) {
+        btn.textContent = `Looking up ${++done} of ${toFind.length}…`;
+        it.status = 'searching';
+        renderRowsOnly();
+        try {
+          if (it.lat === undefined) {
+            const q = [it.address || it.name, !it.address && area ? area : ''].filter(Boolean).join(', ');
+            const res = await Api.searchPlaces(q, { near: area ? null : near });
+            if (res.length) {
+              it.lat = res[0].lat; it.lon = res[0].lon;
+              it.address = it.address || res[0].address;
+              it.name = it.name || res[0].name;
+              it.status = 'found';
+            } else {
+              it.status = 'notfound';
+              it.checked = false;
+            }
+          } else {
+            const info = await Api.reverseGeocode(it.lat, it.lon);
+            it.name = info?.name || `Pinned spot (${it.lat.toFixed(4)}, ${it.lon.toFixed(4)})`;
+            it.address = it.address || info?.address || '';
+            it.status = 'found';
+          }
+        } catch (err) {
+          console.error(err);
+          if (it.lat === undefined) { it.status = 'notfound'; it.checked = false; }
+          else { it.name = it.name || `Pinned spot (${it.lat.toFixed(4)}, ${it.lon.toFixed(4)})`; it.status = 'found'; }
+        }
+      }
+
+      const ready = chosen.filter((it) => it.lat !== undefined && it.status !== 'notfound');
+      const added = addPlaces(ready.map((it) => ({ name: it.name, address: it.address || '', lat: it.lat, lon: it.lon })));
+      ready.forEach((it) => { it.status = 'added'; it.checked = false; });
+      busy = false;
+      const missing = chosen.length - ready.length;
+      toast(`Imported ${added} place${added === 1 ? '' : 's'}${ready.length - added ? ` (${ready.length - added} already on your list)` : ''}${missing ? ` · ${missing} not found` : ''}`);
+      renderPreview();
+    }
+
+    function renderRowsOnly() {
+      const rows = preview.querySelectorAll('.import-row .status');
+      items.forEach((it, i) => { if (rows[i]) rows[i].textContent = STATUS[it.status]; });
+    }
   })();
 
   // ---------------------------------------------------------------------------
