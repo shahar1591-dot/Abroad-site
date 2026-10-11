@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Abroad — Trip Map Planner</title>
+  <meta name="description" content="Pin the places you want to visit anywhere in the world, discover nearby attractions that match your style, and find the hotel closest to all of them.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="panel" aria-label="Trip planner">
+      <header class="brand">
+        <button id="panel-toggle" class="panel-handle" aria-label="Expand or collapse panel"></button>
+        <div class="brand-row">
+          <span class="logo">🧭</span>
+          <div>
+            <h1>Abroad</h1>
+            <p class="tagline">Your places, your style, one perfect base.</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="panel-body">
+        <!-- 1. Places -->
+        <section class="card" id="sec-places">
+          <h2><span class="step">1</span> Places I want to visit</h2>
+          <div class="search">
+            <input id="place-search" type="search" autocomplete="off" placeholder="Search any place, landmark, address…" aria-label="Search a place">
+            <ul id="search-results" class="dropdown" role="listbox" hidden></ul>
+          </div>
+          <p class="hint">Tip: you can also click anywhere on the map to drop a place.</p>
+          <ol id="place-list" class="place-list"></ol>
+          <div class="row gap" id="place-actions" hidden>
+            <button class="btn ghost small" id="fit-all">Show all on map</button>
+            <button class="btn ghost small danger" id="clear-places">Clear all</button>
+          </div>
+        </section>
+
+        <!-- 2. Style -->
+        <section class="card" id="sec-style">
+          <h2><span class="step">2</span> What I like</h2>
+          <div id="style-chips" class="chips" role="group" aria-label="Attraction styles"></div>
+          <label class="field">
+            <span>Describe it in your own words <small>(optional)</small></span>
+            <textarea id="style-text" rows="2" placeholder="e.g. street food, jazz bars, quiet gardens, sunset views, ancient ruins"></textarea>
+          </label>
+          <div id="style-detected" class="detected"></div>
+          <label class="field inline">
+            <span>Search within</span>
+            <input id="radius" type="range" min="300" max="5000" step="100" value="1500">
+            <output id="radius-out">1.5 km</output>
+            <span>of each place</span>
+          </label>
+          <button class="btn primary block" id="find-attractions">✨ Find attractions near my places</button>
+          <div id="attraction-results" class="results"></div>
+        </section>
+
+        <!-- 3. Hotel -->
+        <section class="card" id="sec-hotel">
+          <h2><span class="step">3</span> Where to stay</h2>
+          <p class="hint">Finds lodging with the shortest <em>average</em> distance to every place on your list.</p>
+          <div class="chips small" id="lodging-chips" role="group" aria-label="Lodging types"></div>
+          <label class="field inline">
+            <span>Minimum stars</span>
+            <select id="min-stars">
+              <option value="0">Any</option>
+              <option value="2">2+</option>
+              <option value="3">3+</option>
+              <option value="4">4+</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+          <button class="btn primary block" id="find-hotel">🏨 Find the best-located stay</button>
+          <div id="hotel-results" class="results"></div>
+        </section>
+
+        <!-- 4. Near me -->
+        <section class="card" id="sec-near">
+          <h2><span class="step">★</span> Around me right now</h2>
+          <p class="hint" id="me-status">Locating you…</p>
+          <div class="row gap">
+            <button class="btn ghost small" id="locate">📍 Locate me</button>
+            <button class="btn ghost small" id="suggest-me" disabled>🔎 Suggestions near me</button>
+          </div>
+          <div id="near-results" class="results"></div>
+        </section>
+
+        <footer class="credits">
+          Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+          Distances are straight-line estimates.
+        </footer>
+      </div>
+    </aside>
+
+    <main id="map-wrap">
+      <div id="map" aria-label="Map"></div>
+      <div class="map-tools">
+        <button class="fab" id="fab-locate" title="Locate me" aria-label="Locate me">◎</button>
+        <button class="fab" id="fab-fit" title="Fit everything" aria-label="Fit everything">⤢</button>
+      </div>
+      <div class="legend" id="legend">
+        <span><i class="dot place"></i>My places</span>
+        <span><i class="dot attraction"></i>Suggestions</span>
+        <span><i class="dot hotel"></i>Stays</span>
+        <span><i class="dot me"></i>You</span>
+      </div>
+    </main>
+  </div>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

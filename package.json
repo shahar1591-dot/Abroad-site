@@ -1,0 +1,10 @@
+{
+  "name": "abroad-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trip map planner: pin places worldwide, discover attractions by style, find the best-located hotel.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test tests/*.test.js"
+  }
+}
