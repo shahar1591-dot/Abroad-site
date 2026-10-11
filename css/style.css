@@ -336,3 +336,23 @@ a { color: var(--accent); }
 .import-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
 .import-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); }
 .import-bar button { font-size: 12px; }
+
+.import-group { border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.import-group > summary {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-weight: 600; list-style: none;
+}
+.import-group > summary::-webkit-details-marker { display: none; }
+.import-group > summary::after { content: "▸"; margin-left: 2px; color: var(--muted); transition: transform .15s; }
+.import-group[open] > summary::after { transform: rotate(90deg); }
+.import-group > summary input { accent-color: var(--accent); }
+.import-group .gname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.import-group .gcount { color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
+.import-group .import-row { border: none; border-top: 1px solid var(--line); border-radius: 0; }
+.import-list { max-height: 360px; }
+.imported-lists { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12.5px; }
+.imported-lists .label { color: var(--muted); }
+.list-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 2px 2px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); }
+.list-chip b { color: var(--muted); font-weight: 600; }
+.list-chip .icon-btn { width: 22px; height: 22px; border-radius: 999px; font-size: 11px; }
+.place-item .from { color: var(--accent); }
+.import-bar > span:last-child { display: flex; gap: 4px; flex: none; }

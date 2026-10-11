@@ -522,6 +522,61 @@
     return out;
   }
 
+  /** True if the bytes start with the ZIP signature "PK\x03\x04" (Takeout .zip, My Maps .kmz). */
+  function isZip(bytes) {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    return b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+  }
+
+  /**
+   * Minimal ZIP reader (stored + deflate) built on the platform DecompressionStream.
+   * Returns [{path, text}] for entries whose path passes `accept`.
+   */
+  async function readZip(buffer, accept = () => true) {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+      if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('Not a valid zip file');
+    const count = view.getUint16(eocd + 10, true);
+    let p = view.getUint32(eocd + 16, true);
+    if (p === 0xffffffff || count === 0xffff) throw new Error('This zip is too large — export only the Saved / Maps data');
+
+    const utf8 = new TextDecoder('utf-8');
+    const out = [];
+    for (let n = 0; n < count; n++) {
+      if (view.getUint32(p, true) !== 0x02014b50) throw new Error('Corrupt zip directory');
+      const method = view.getUint16(p + 10, true);
+      const compSize = view.getUint32(p + 20, true);
+      const nameLen = view.getUint16(p + 28, true);
+      const extraLen = view.getUint16(p + 30, true);
+      const commentLen = view.getUint16(p + 32, true);
+      const local = view.getUint32(p + 42, true);
+      const path = utf8.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+      p += 46 + nameLen + extraLen + commentLen;
+      if (path.endsWith('/') || !accept(path)) continue;
+
+      const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+      const data = bytes.subarray(start, start + compSize);
+      let raw;
+      if (method === 0) raw = data;
+      else if (method === 8) {
+        const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        raw = new Uint8Array(await new Response(stream).arrayBuffer());
+      } else continue; // unsupported compression; skip entry
+      out.push({ path, text: utf8.decode(raw) });
+    }
+    return out;
+  }
+
+  /** "Takeout/Saved/Want to go.csv" -> "Want to go" */
+  function listNameFromPath(path) {
+    const base = String(path).split('/').pop() || String(path);
+    return base.replace(/\.[^.]+$/, '').trim() || base;
+  }
+
   /** Pick the right parser from the file name / content. */
   function parseImportFile(fileName, text) {
     const n = String(fileName || '').toLowerCase();
@@ -537,6 +592,7 @@
     STYLES, KEYWORDS, parseDescription, buildOverpassQuery, filtersFor, classify,
     toPoi, notability, rankPois, LODGING, rankHotels, hotelSearchRadius, escapeRegex,
     parseMapsUrl, parseCsv, parseSavedCsv, parseSavedGeoJson, parseKml, parsePastedList, parseImportFile,
+    isZip, readZip, listNameFromPath,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;

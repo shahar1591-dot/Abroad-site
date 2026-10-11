@@ -226,7 +226,7 @@
     for (const p of list) {
       const dupe = state.places.find((x) => (p.osm && x.osm === p.osm) || (Core.haversine(x, p) < 25 && x.name === p.name));
       if (dupe) continue;
-      state.places.push({ id: uid(), name: p.name, address: p.address || '', lat: p.lat, lon: p.lon, osm: p.osm || null });
+      state.places.push({ id: uid(), name: p.name, address: p.address || '', lat: p.lat, lon: p.lon, osm: p.osm || null, list: p.list || null });
       added++;
     }
     if (!added) return 0;
@@ -260,7 +260,7 @@
       const li = document.createElement('li');
       li.className = 'place-item';
       li.innerHTML = `<span class="pin-num">${i + 1}</span>
-        <div class="meta"><div class="name">${esc(p.name)}</div><div class="addr">${esc(p.address)}</div></div>
+        <div class="meta"><div class="name">${esc(p.name)}</div><div class="addr">${p.list ? `<span class="from">📁 ${esc(p.list)}</span> ` : ''}${esc(p.address)}</div></div>
         <button class="icon-btn" title="Remove" aria-label="Remove ${esc(p.name)}">✕</button>`;
       li.addEventListener('click', (e) => {
         if (e.target.closest('.icon-btn')) { removePlace(p.id); return; }
@@ -277,6 +277,29 @@
         <button data-act-key="${removeKey}">Remove</button></div></div>`);
     });
     $('#place-actions').hidden = state.places.length === 0;
+    renderImportedLists();
+  }
+
+  /** Chips for every Google Maps list the current places came from, each removable as a whole. */
+  function renderImportedLists() {
+    const box = $('#imported-lists');
+    const counts = new Map();
+    for (const p of state.places) if (p.list) counts.set(p.list, (counts.get(p.list) || 0) + 1);
+    box.hidden = counts.size === 0;
+    box.innerHTML = counts.size ? '<span class="label">From Google Maps:</span>' : '';
+    for (const [name, n] of counts) {
+      const chip = document.createElement('span');
+      chip.className = 'list-chip';
+      chip.innerHTML = `📁 ${esc(name)} <b>${n}</b><button class="icon-btn" title="Remove this list's places" aria-label="Remove all places from ${esc(name)}">✕</button>`;
+      chip.querySelector('button').addEventListener('click', () => {
+        if (!confirm(`Remove the ${n} place${n === 1 ? '' : 's'} imported from "${name}"?`)) return;
+        state.places = state.places.filter((p) => p.list !== name);
+        save();
+        renderPlaces();
+        invalidateHotels();
+      });
+      box.appendChild(chip);
+    }
   }
 
   // Search box with autocomplete
@@ -350,6 +373,8 @@
     let items = [];
     let busy = false;
 
+    try { $('#import-area').value = localStorage.getItem('abroad.importArea') || ''; } catch { /* ignore */ }
+
     toggle.addEventListener('click', () => {
       panel.hidden = !panel.hidden;
       toggle.setAttribute('aria-expanded', String(!panel.hidden));
@@ -361,22 +386,62 @@
     fileInput.addEventListener('change', () => { if (fileInput.files.length) read(); });
     $('#import-read').addEventListener('click', read);
 
+    const PLACE_FILE = /\.(csv|json|geojson|kml)$/i;
+    const SKIP_FILE = /(^|\/)(archive_browser|.*\.html?$)/i;
+
+    /** Turn one chosen file (csv/json/kml or a Takeout .zip / My Maps .kmz) into [{list, items}]. */
+    async function readFile(file) {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      if (!Core.isZip(buf)) {
+        const text = new TextDecoder('utf-8').decode(buf);
+        return [{ list: Core.listNameFromPath(file.name), items: Core.parseImportFile(file.name, text) }];
+      }
+      const isKmz = /\.kmz$/i.test(file.name);
+      const entries = await Core.readZip(buf, (path) => PLACE_FILE.test(path) && !SKIP_FILE.test(path));
+      const out = [];
+      for (const e of entries) {
+        let parsed = [];
+        try { parsed = Core.parseImportFile(e.path, e.text); } catch { /* not a places file */ }
+        if (!parsed.length) continue;
+        out.push({ list: isKmz ? Core.listNameFromPath(file.name) : Core.listNameFromPath(e.path), items: parsed });
+      }
+      return out;
+    }
+
+    const sameName = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+    function alreadyHave(it) {
+      return state.places.some((p) => sameName(p.name, it.name) &&
+        (it.lat === undefined ? (!it.source || p.list === it.source) : Core.haversine(p, it) < 150));
+    }
+
+    let readSeq = 0;
     async function read() {
       if (busy) return;
+      const seq = ++readSeq; // a newer read (e.g. file picked, then button clicked) supersedes this one
       const found = [];
       const problems = [];
-      for (const file of fileInput.files) {
-        try {
-          const text = await file.text();
-          const list = Core.parseImportFile(file.name, text);
-          if (!list.length) problems.push(`${file.name}: no places found`);
-          const listName = file.name.replace(/\.[^.]+$/, '');
-          list.forEach((it) => found.push({ ...it, source: listName }));
-        } catch (err) {
-          console.error(err);
-          problems.push(`${file.name}: could not read this file`);
+      const readBtn = $('#import-read');
+      readBtn.classList.add('loading');
+      try {
+        for (const file of fileInput.files) {
+          try {
+            const lists = await readFile(file);
+            const total = lists.reduce((n, l) => n + l.items.length, 0);
+            if (!total) {
+              problems.push(/\.(zip|kmz)$/i.test(file.name)
+                ? `${file.name}: no saved places inside. In Takeout, make sure "Saved" or "Maps (your places)" is ticked.`
+                : `${file.name}: no places found`);
+            }
+            for (const l of lists) l.items.forEach((it) => found.push({ ...it, source: l.list }));
+          } catch (err) {
+            console.error(err);
+            problems.push(`${file.name}: ${err.message && /zip/i.test(err.message) ? err.message : 'could not read this file'}`);
+          }
         }
+      } finally {
+        readBtn.classList.remove('loading');
       }
+      if (seq !== readSeq) return;
       const pasted = $('#import-text').value;
       if (pasted.trim()) Core.parsePastedList(pasted).forEach((it) => found.push({ ...it, source: 'Pasted' }));
 
@@ -384,18 +449,22 @@
         preview.innerHTML = `<div class="empty-state">${problems.length ? problems.map(esc).join('<br>') : 'Choose a file or paste some links / names first.'}</div>`;
         return;
       }
-      // De-duplicate within the import.
+      // De-duplicate within the import (the same place is often in several lists).
       const seen = new Set();
       items = found.filter((it) => {
         const key = it.lat !== undefined ? `${it.lat.toFixed(5)},${it.lon.toFixed(5)}` : `n:${(it.name || '').toLowerCase()}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
-      }).map((it) => ({
-        ...it,
-        checked: !it.unresolved,
-        status: it.unresolved ? 'short' : it.lat !== undefined ? 'located' : 'lookup',
-      }));
+      }).map((it) => {
+        const status = it.unresolved ? 'short' : alreadyHave(it) ? 'have' : it.lat !== undefined ? 'located' : 'lookup';
+        return { ...it, status, checked: status === 'located' || status === 'lookup' };
+      });
+      // Many lists at once (a whole Takeout): start with nothing ticked so the user picks the trip's lists.
+      const fileLists = new Set(items.map((it) => it.source).filter((l) => l !== 'Pasted'));
+      if (fileLists.size > 1) {
+        items.forEach((it) => { if (it.source !== 'Pasted') it.checked = false; });
+      }
       renderPreview(problems);
     }
 
@@ -407,19 +476,28 @@
       notfound: '⚠️ not found',
       short: '⚠️ short link',
       added: '✔️ added',
+      have: '✔️ already on map',
     };
+
+    const ADDABLE = ['located', 'lookup', 'found'];
+    const selectable = (it) => ADDABLE.includes(it.status);
 
     function renderPreview(problems = []) {
       preview.innerHTML = '';
-      const selectable = items.filter((it) => it.status !== 'short' && it.status !== 'notfound' && it.status !== 'added');
+      const groups = new Map();
+      for (const it of items) {
+        if (!groups.has(it.source)) groups.set(it.source, []);
+        groups.get(it.source).push(it);
+      }
+
       const bar = document.createElement('div');
       bar.className = 'import-bar';
-      bar.innerHTML = `<span>${items.length} place${items.length === 1 ? '' : 's'} found</span>
-        <span><button class="btn ghost small" data-all="1">Select all</button> <button class="btn ghost small" data-all="0">None</button></span>`;
+      bar.innerHTML = `<span>${items.length} place${items.length === 1 ? '' : 's'}${groups.size > 1 ? ` in ${groups.size} lists` : ''}${groups.size > 1 ? ' — tick the lists for this trip' : ''}</span>
+        <span><button class="btn ghost small" data-all="1">All</button> <button class="btn ghost small" data-all="0">None</button></span>`;
       bar.addEventListener('click', (e) => {
         const b = e.target.closest('[data-all]');
         if (!b || busy) return;
-        selectable.forEach((it) => { it.checked = b.dataset.all === '1'; });
+        items.filter(selectable).forEach((it) => { it.checked = b.dataset.all === '1'; });
         renderPreview(problems);
       });
       preview.appendChild(bar);
@@ -432,20 +510,49 @@
 
       const list = document.createElement('div');
       list.className = 'import-list';
-      items.forEach((it) => {
-        const row = document.createElement('label');
-        const disabled = it.status === 'short' || it.status === 'notfound' || it.status === 'added' || busy;
-        row.className = `import-row${it.status === 'short' || it.status === 'notfound' ? ' bad' : ''}`;
-        const sub = it.status === 'short'
-          ? 'Short share links can’t be read here — open it in your browser and paste the full address instead.'
-          : [it.address, it.note, it.source && it.source !== 'Pasted' ? `List: ${it.source}` : ''].filter(Boolean).join(' · ');
-        row.innerHTML = `<input type="checkbox" ${it.checked && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-          <div class="meta"><div class="name">${esc(it.name || it.url || (it.lat !== undefined ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}` : 'Unnamed place'))}</div>
-          ${sub ? `<div class="sub">${esc(sub).slice(0, 220)}</div>` : ''}</div>
-          <span class="status">${STATUS[it.status]}</span>`;
-        row.querySelector('input').addEventListener('change', (e) => { it.checked = e.target.checked; updateButton(); });
-        list.appendChild(row);
-      });
+      for (const [name, group] of groups) {
+        const box = document.createElement('details');
+        box.className = 'import-group';
+        box.open = groups.size === 1 || group.length <= 8;
+        const pick = group.filter(selectable);
+        const on = pick.filter((it) => it.checked).length;
+        const have = group.filter((it) => it.status === 'have' || it.status === 'added').length;
+        box.innerHTML = `<summary><input type="checkbox" aria-label="Select list ${esc(name)}" ${pick.length ? '' : 'disabled'}>
+          <span class="gname">${name === 'Pasted' ? '📋 Pasted' : `📁 ${esc(name)}`}</span>
+          <span class="gcount">${group.length}${have ? ` · ${have} on map` : ''}</span></summary>`;
+        const groupBox = box.querySelector('summary input');
+        groupBox.checked = pick.length > 0 && on === pick.length;
+        groupBox.indeterminate = on > 0 && on < pick.length;
+        groupBox.addEventListener('click', (e) => e.stopPropagation());
+        groupBox.addEventListener('change', () => {
+          if (busy) return;
+          pick.forEach((it) => { it.checked = groupBox.checked; });
+          renderPreview(problems);
+        });
+
+        for (const it of group) {
+          const row = document.createElement('label');
+          const disabled = !selectable(it) || busy;
+          row.className = `import-row${it.status === 'short' || it.status === 'notfound' ? ' bad' : ''}`;
+          const sub = it.status === 'short'
+            ? 'Short share links can’t be read here — open it in your browser and paste the full address instead.'
+            : [it.address, it.note].filter(Boolean).join(' · ');
+          row.innerHTML = `<input type="checkbox" ${it.checked && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+            <div class="meta"><div class="name">${esc(it.name || it.url || (it.lat !== undefined ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}` : 'Unnamed place'))}</div>
+            ${sub ? `<div class="sub">${esc(sub).slice(0, 220)}</div>` : ''}</div>
+            <span class="status">${STATUS[it.status]}</span>`;
+          row.querySelector('input').addEventListener('change', (e) => {
+            it.checked = e.target.checked;
+            const n = pick.filter((x) => x.checked).length;
+            groupBox.checked = n === pick.length;
+            groupBox.indeterminate = n > 0 && n < pick.length;
+            updateButton();
+          });
+          it.row = row;
+          box.appendChild(row);
+        }
+        list.appendChild(box);
+      }
       preview.appendChild(list);
 
       const btn = document.createElement('button');
@@ -459,17 +566,18 @@
     function updateButton() {
       const btn = $('#import-add');
       if (!btn) return;
-      const n = items.filter((it) => it.checked && ['located', 'lookup', 'found'].includes(it.status)).length;
+      const n = items.filter((it) => it.checked && selectable(it)).length;
       btn.textContent = n ? `Add ${n} place${n === 1 ? '' : 's'} to my map` : 'Nothing selected';
       btn.disabled = !n || busy;
     }
 
     async function addSelected(btn) {
-      const chosen = items.filter((it) => it.checked && ['located', 'lookup', 'found'].includes(it.status));
+      const chosen = items.filter((it) => it.checked && selectable(it));
       if (!chosen.length || busy) return;
       busy = true;
       btn.disabled = true;
       const area = $('#import-area').value.trim();
+      try { localStorage.setItem('abroad.importArea', area); } catch { /* ignore */ }
       // Bias name lookups toward places we already know about.
       const known = [...state.places, ...items.filter((it) => it.lat !== undefined)];
       const near = known.length ? Core.geometricMedian(known) : null;
@@ -507,7 +615,7 @@
       }
 
       const ready = chosen.filter((it) => it.lat !== undefined && it.status !== 'notfound');
-      const added = addPlaces(ready.map((it) => ({ name: it.name, address: it.address || '', lat: it.lat, lon: it.lon })));
+      const added = addPlaces(ready.map((it) => ({ name: it.name, address: it.address || '', lat: it.lat, lon: it.lon, list: it.source !== 'Pasted' ? it.source : null })));
       ready.forEach((it) => { it.status = 'added'; it.checked = false; });
       busy = false;
       const missing = chosen.length - ready.length;
@@ -516,8 +624,7 @@
     }
 
     function renderRowsOnly() {
-      const rows = preview.querySelectorAll('.import-row .status');
-      items.forEach((it, i) => { if (rows[i]) rows[i].textContent = STATUS[it.status]; });
+      items.forEach((it) => { const el = it.row?.querySelector('.status'); if (el) el.textContent = STATUS[it.status]; });
     }
   })();
 

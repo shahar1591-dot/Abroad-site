@@ -40,15 +40,15 @@
             <details class="howto">
               <summary>How do I get my Google Maps lists?</summary>
               <ol>
-                <li><b>Saved lists</b> (Want to go, Favorites, your own lists): open <a href="https://takeout.google.com/" target="_blank" rel="noopener">Google Takeout</a> → <em>Deselect all</em> → tick <b>Saved</b> → <em>Next step</em> → <em>Create export</em>. Unzip the download: every list is a <code>.csv</code> file.</li>
-                <li><b>Starred / labeled places</b>: in Takeout tick <b>Maps (your places)</b> instead and use <code>Saved Places.json</code>.</li>
-                <li><b>Google My Maps</b>: open the map → ⋮ menu → <em>Export to KML/KMZ</em> → tick <em>Export as KML</em>.</li>
+                <li><b>All your saved lists at once</b>: open <a href="https://takeout.google.com/" target="_blank" rel="noopener">Google Takeout</a> → <em>Deselect all</em> → tick <b>Saved</b> (and <b>Maps (your places)</b> for starred places) → <em>Next step</em> → <em>Create export</em> (file type <code>.zip</code>). When Google emails you, download the <code>.zip</code> and drop it here as is, no need to unzip. Then tick the lists you want for this trip.</li>
+                <li><b>Google My Maps</b>: open the map → ⋮ menu → <em>Export to KML/KMZ</em> → drop the <code>.kmz</code> (or <code>.kml</code>) here.</li>
+                <li>Already unzipped? You can also drop the single <code>.csv</code> / <code>.json</code> files.</li>
                 <li><b>Just a few places?</b> In Google Maps tap <em>Share</em> → <em>Copy link</em>, open the link in your browser, then paste the full address from the address bar below. Plain place names work too.</li>
               </ol>
             </details>
             <label class="file-drop" id="file-drop">
-              <input id="import-file" type="file" accept=".csv,.json,.geojson,.kml,text/csv,application/json,application/vnd.google-earth.kml+xml" multiple>
-              <span>📄 Choose or drop files <small>(.csv, .json, .kml, several at once)</small></span>
+              <input id="import-file" type="file" accept=".zip,.kmz,.csv,.json,.geojson,.kml,application/zip,text/csv,application/json,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" multiple>
+              <span>📦 Drop your Google Takeout <b>.zip</b> here <small>(or .kmz, .csv, .json, .kml — several at once)</small></span>
             </label>
             <label class="field">
               <span>…or paste Google Maps links or place names, one per line</span>
@@ -61,6 +61,7 @@
             <button class="btn primary block" id="import-read">Read places</button>
             <div id="import-preview" class="results"></div>
           </div>
+          <div id="imported-lists" class="imported-lists" hidden></div>
           <ol id="place-list" class="place-list"></ol>
           <div class="row gap" id="place-actions" hidden>
             <button class="btn ghost small" id="fit-all">Show all on map</button>
