@@ -93,14 +93,15 @@
   const map = L.map('map', { worldCopyJump: true, zoomControl: false }).setView([25, 10], 2);
   L.control.zoom({ position: 'topright' }).addTo(map);
 
-  const voyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 20, subdomains: 'abcd',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  });
+  // Keyless tile servers only (CARTO basemaps now watermark tiles without an API key).
   const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   });
-  voyager.addTo(map);
+  const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    maxZoom: 17, subdomains: 'abc',
+    attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Style &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+  });
+  osm.addTo(map);
 
   const layers = {
     lines: L.layerGroup().addTo(map),
@@ -111,7 +112,7 @@
     me: L.layerGroup().addTo(map),
   };
   L.control.layers(
-    { 'Streets (Voyager)': voyager, 'OpenStreetMap': osm },
+    { 'Streets': osm, 'Terrain': topo },
     {
       'My places': layers.places, 'Suggested attractions': layers.attractions,
       'Near me': layers.near, 'Stays': layers.hotels, 'Distance lines': layers.lines, 'My location': layers.me,

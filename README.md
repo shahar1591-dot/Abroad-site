@@ -15,7 +15,7 @@ No API keys, no backend — everything runs in the browser and works worldwide:
 
 | Need | Service |
 | --- | --- |
-| Map | [Leaflet](https://leafletjs.com) + CARTO Voyager / OpenStreetMap tiles |
+| Map | [Leaflet](https://leafletjs.com) + OpenStreetMap / OpenTopoMap tiles |
 | Search & reverse geocoding | [Nominatim](https://nominatim.org) |
 | Attractions & hotels | [Overpass API](https://overpass-api.de) (OpenStreetMap data, with fallback mirrors) |
 | Your location | Browser Geolocation API, fallback to ipapi.co |
